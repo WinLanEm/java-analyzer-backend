@@ -439,6 +439,11 @@ public final class SimulateExecutionAction {
     private boolean executeAssignment(String statement, Map<String, Object> memory) {
         String cleanStatement = cleanStatement(statement);
 
+        if (isUnaryUpdateExpression(cleanStatement)) {
+            evaluateUnaryUpdateExpression(cleanStatement, memory);
+            return true;
+        }
+
         Matcher compoundAssignmentMatcher = COMPOUND_ASSIGNMENT_PATTERN.matcher(cleanStatement);
         if (compoundAssignmentMatcher.matches()) {
             applyCompoundAssignment(
@@ -447,18 +452,6 @@ public final class SimulateExecutionAction {
                     compoundAssignmentMatcher.group(3),
                     memory
             );
-            return true;
-        }
-
-        Matcher postfixUpdateMatcher = POSTFIX_UPDATE_PATTERN.matcher(cleanStatement);
-        if (postfixUpdateMatcher.matches()) {
-            applyVariableUpdate(postfixUpdateMatcher.group(1), postfixUpdateMatcher.group(2), memory);
-            return true;
-        }
-
-        Matcher prefixUpdateMatcher = PREFIX_UPDATE_PATTERN.matcher(cleanStatement);
-        if (prefixUpdateMatcher.matches()) {
-            applyVariableUpdate(prefixUpdateMatcher.group(2), prefixUpdateMatcher.group(1), memory);
             return true;
         }
 
@@ -496,9 +489,35 @@ public final class SimulateExecutionAction {
         return true;
     }
 
-    private void applyVariableUpdate(String variableName, String operator, Map<String, Object> memory) {
+    private Object evaluateUnaryUpdateExpression(String expression, Map<String, Object> memory) {
+        Matcher postfixUpdateMatcher = POSTFIX_UPDATE_PATTERN.matcher(expression);
+        if (postfixUpdateMatcher.matches()) {
+            return applyVariableUpdate(postfixUpdateMatcher.group(1), postfixUpdateMatcher.group(2), true, memory);
+        }
+
+        Matcher prefixUpdateMatcher = PREFIX_UPDATE_PATTERN.matcher(expression);
+        if (prefixUpdateMatcher.matches()) {
+            return applyVariableUpdate(prefixUpdateMatcher.group(2), prefixUpdateMatcher.group(1), false, memory);
+        }
+
+        return 0;
+    }
+
+    private boolean isUnaryUpdateExpression(String expression) {
+        return POSTFIX_UPDATE_PATTERN.matcher(expression).matches()
+                || PREFIX_UPDATE_PATTERN.matcher(expression).matches();
+    }
+
+    private Object applyVariableUpdate(
+            String variableName,
+            String operator,
+            boolean returnPreviousValue,
+            Map<String, Object> memory
+    ) {
         int currentValue = asInt(evaluateExpression(variableName, memory));
-        memory.put(variableName, "++".equals(operator) ? currentValue + 1 : currentValue - 1);
+        int nextValue = "++".equals(operator) ? currentValue + 1 : currentValue - 1;
+        memory.put(variableName, nextValue);
+        return returnPreviousValue ? currentValue : nextValue;
     }
 
     private void applyCompoundAssignment(
@@ -572,6 +591,9 @@ public final class SimulateExecutionAction {
         }
         if (memory.containsKey(cleanExpression)) {
             return memory.get(cleanExpression);
+        }
+        if (isUnaryUpdateExpression(cleanExpression)) {
+            return evaluateUnaryUpdateExpression(cleanExpression, memory);
         }
         Matcher intrinsicMatcher = INTRINSIC_CALL_PATTERN.matcher(cleanExpression);
         if (intrinsicMatcher.matches()) {

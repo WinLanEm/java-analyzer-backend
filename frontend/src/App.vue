@@ -6,11 +6,12 @@ import { Handle, Position, VueFlow } from '@vue-flow/core'
 import type { Edge, Node } from '@vue-flow/core'
 import type * as monaco from 'monaco-editor'
 
-import { useAnalyzerStore } from './store/analyzer'
+import { examples, useAnalyzerStore } from './store/analyzer'
 import { applyDagreLayout } from './utils/layout'
 import type { AnalyzerNode } from './types'
 
 const analyzerStore = useAnalyzerStore()
+const exampleNames = Object.keys(examples) as Array<keyof typeof examples>
 let errorToastTimer: ReturnType<typeof setTimeout> | null = null
 
 // --- 1. ЛОГИКА MONACO EDITOR ---
@@ -50,7 +51,34 @@ function updateActiveLineHighlight(activeNodeId: string | null) {
 
 function handleEditorMount(editor: monaco.editor.IStandaloneCodeEditor) {
   monacoEditor.value = editor
+  configureEditor()
   updateActiveLineHighlight(analyzerStore.activeNodeId)
+}
+
+function configureEditor() {
+  const editor = monacoEditor.value
+  if (!editor) return
+
+  editor.updateOptions({ tabSize: 2, insertSpaces: true })
+  editor.getModel()?.updateOptions({ tabSize: 2, insertSpaces: true })
+  editor.focus()
+}
+
+function handlePresetChange(event: Event) {
+  const exampleName = (event.target as HTMLSelectElement).value as keyof typeof examples
+  analyzerStore.loadExample(exampleName)
+
+  if (monacoEditor.value) {
+    monacoEditor.value.setValue(examples[exampleName])
+  }
+
+  configureEditor()
+}
+
+async function runAnalysis() {
+  configureEditor()
+  await analyzerStore.analyze()
+  configureEditor()
 }
 
 // --- 2. ЛОГИКА ГРАФА VUE FLOW ---
@@ -166,14 +194,32 @@ function isArrayObject(object: { className: string; values?: any[] }): boolean {
       <div class="font-bold text-lg tracking-wide flex items-center gap-2">
         <span class="text-indigo-400">⚡</span> Code Analyzer
       </div>
-      <button
-          @click="analyzerStore.analyze()"
-          :disabled="analyzerStore.isLoading"
-          class="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-md font-semibold text-sm transition shadow-lg disabled:opacity-50 flex items-center gap-2"
-      >
-        <span v-if="analyzerStore.isLoading" class="animate-spin text-lg leading-none">⏳</span>
-        {{ analyzerStore.isLoading ? 'Analyzing...' : 'Run Analysis' }}
-      </button>
+      <div class="flex items-center gap-3">
+        <label class="flex items-center gap-2 text-sm font-semibold text-slate-200">
+          <span class="text-slate-400">Preset</span>
+          <select
+              :value="analyzerStore.selectedExample"
+              class="h-9 rounded-md border border-slate-600 bg-slate-900 px-3 text-sm font-semibold text-slate-100 shadow-lg outline-none transition hover:border-slate-400 focus:border-indigo-400"
+              @change="handlePresetChange"
+          >
+            <option
+                v-for="exampleName in exampleNames"
+                :key="exampleName"
+                :value="exampleName"
+            >
+              {{ exampleName }}
+            </option>
+          </select>
+        </label>
+        <button
+            @click="runAnalysis()"
+            :disabled="analyzerStore.isLoading"
+            class="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2 rounded-md font-semibold text-sm transition shadow-lg disabled:opacity-50 flex items-center gap-2"
+        >
+          <span v-if="analyzerStore.isLoading" class="animate-spin text-lg leading-none">⏳</span>
+          {{ analyzerStore.isLoading ? 'Analyzing...' : 'Run Analysis' }}
+        </button>
+      </div>
     </div>
 
     <div class="flex-1 flex overflow-hidden">
