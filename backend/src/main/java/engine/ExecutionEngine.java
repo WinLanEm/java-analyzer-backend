@@ -307,7 +307,7 @@ public final class ExecutionEngine {
             }
         }
 
-        return outgoingEdges.getFirst();
+        return null;
     }
 
     private boolean isReturnNode(AnalyzerNode node) {

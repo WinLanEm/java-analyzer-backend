@@ -4,7 +4,7 @@ import type { AnalyzerEdge, AnalyzerNode, BackendPayload, ExecutionStep, GraphDT
 const API_URL = 'http://localhost:8080'  //БЭКЕНД
 
 import { examples } from '../constants/examples'
-const defaultCode = examples['Basic Loop']
+const defaultCode = examples['1. Basics']
 
 interface AnalyzerState {
   code: string
@@ -30,7 +30,7 @@ export const useAnalyzerStore = defineStore('analyzer', {
     isLoading: false,
     isAnalyzed: false,
     errorMessage: null,
-    selectedExample: 'Basic Loop',
+    selectedExample: '1. Basics',
   }),
   
   getters: {
