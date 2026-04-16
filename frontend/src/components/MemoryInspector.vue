@@ -35,10 +35,21 @@ const isArray = (obj: any) => obj?.className?.endsWith('[]')
              class="rounded-md border border-sky-300 bg-sky-50 p-2 text-xs">
           <div class="font-mono font-bold text-sky-700">
             <template v-if="isArray(obj)">
-              {{ obj.className }} <br/>
+              {{ obj.className }} (#{{ obj.id }}) <br/>
               <span class="text-slate-500">[{{ (obj.values ?? []).join(', ') }}]</span>
             </template>
-            <template v-else>{{ obj.className }}</template>
+            <template v-else>
+              <div class="mb-1">{{ obj.className }} (#{{ obj.id }})</div>
+              <div
+                  v-if="obj.fields && Object.keys(obj.fields).length > 0"
+                  class="pl-2 border-l-2 border-sky-300/50 space-y-0.5 mt-1"
+              >
+                <div v-for="(val, key) in obj.fields" :key="key" class="text-[10px] font-mono">
+                  <span class="text-slate-500">{{ key }}:</span>
+                  <span class="text-indigo-600 font-bold ml-1">{{ val }}</span>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
       </div>

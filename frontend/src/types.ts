@@ -28,6 +28,7 @@ export interface ObjectInstance {
   id: number
   className: string
   values?: any[]
+  fields?: Record<string, any>
 }
 
 export interface CurrentContext {

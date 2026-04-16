@@ -82,10 +82,10 @@ public class Demo {
   int balance = 100;
 
   void withdraw(int amount) {
-    if (amount > balance) {
+    if (amount > this.balance) {
       throw new RuntimeException();
     }
-    balance = balance - amount;
+    this.balance = this.balance - amount;
   }
 }
 
@@ -94,7 +94,6 @@ public class Demo {
     BankAccount acc = new BankAccount();
     acc.withdraw(40);
     
-    // Это вызовет исключение и окрасит ноду в красный
     acc.withdraw(100); 
   }
 }`,
@@ -109,17 +108,30 @@ class Cart {
   int count = 0;
 
   void add(Product p) {
-    if (count >= items.length) {
+    // 1. Вытаскиваем поля в локальные переменные (для парсера и наглядности)
+    Product[] localItems = this.items;
+    int currentCount = this.count;
+
+    if (currentCount >= localItems.length) {
       throw new RuntimeException();
     }
-    items[count] = p;
-    count++;
+    
+    // 2. Работаем с локальными копиями
+    localItems[currentCount] = p;
+    
+    // 3. Сохраняем обновленный счетчик обратно в Heap
+    this.count = currentCount + 1;
   }
 
   int calculateTotal() {
     int sum = 0;
-    for (int i = 0; i < count; i++) {
-      int itemPrice = items[i].price;
+    Product[] localItems = this.items;
+    int currentCount = this.count;
+
+    for (int i = 0; i < currentCount; i++) {
+      Product item = localItems[i];
+      int itemPrice = item.price;
+      
       // Скидка 10 монет на дорогие товары
       if (itemPrice >= 100) {
         itemPrice = itemPrice - 10; 
