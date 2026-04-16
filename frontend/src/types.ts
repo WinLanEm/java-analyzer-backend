@@ -27,6 +27,7 @@ export interface GraphDTO {
 export interface ObjectInstance {
   id: number
   className: string
+  values?: any[]
 }
 
 export interface CurrentContext {

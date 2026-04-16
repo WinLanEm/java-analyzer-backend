@@ -154,6 +154,10 @@ function isErrorMemoryKey(key: string | number): boolean {
 function isThrowNode(node: AnalyzerNode): boolean {
   return node.label.toLowerCase().includes('throw') || node.isError === true
 }
+
+function isArrayObject(object: { className: string; values?: any[] }): boolean {
+  return object.className.endsWith('[]')
+}
 </script>
 
 <template>
@@ -237,7 +241,14 @@ function isThrowNode(node: AnalyzerNode): boolean {
                     :key="object.id"
                     class="rounded-md border border-sky-300 bg-sky-50 p-2 text-xs text-slate-800"
                 >
-                  <div class="font-mono font-bold text-sky-700">{{ object.className }} (#{{ object.id }})</div>
+                  <div class="font-mono font-bold text-sky-700">
+                    <template v-if="isArrayObject(object)">
+                      {{ object.className }} (#{{ object.id }}) -> [{{ (object.values ?? []).join(', ') }}]
+                    </template>
+                    <template v-else>
+                      {{ object.className }} (#{{ object.id }})
+                    </template>
+                  </div>
                 </div>
               </div>
             </div>
