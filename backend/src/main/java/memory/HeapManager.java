@@ -73,7 +73,12 @@ public final class HeapManager {
     public List<ObjectInstance> snapshotHeap() {
         List<ObjectInstance> snapshot = new ArrayList<>();
         for (RuntimeObject instance : heap.values()) {
-            snapshot.add(new ObjectInstance(instance.id(), instance.className(), List.copyOf(instance.values())));
+            snapshot.add(new ObjectInstance(
+                    instance.id(),
+                    instance.className(),
+                    List.copyOf(instance.values()),
+                    Map.copyOf(instance.fields())
+            ));
         }
         return List.copyOf(snapshot);
     }
