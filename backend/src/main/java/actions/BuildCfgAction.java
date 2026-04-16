@@ -5,6 +5,8 @@ import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.BreakStmt;
+import com.github.javaparser.ast.stmt.ContinueStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
 import com.github.javaparser.ast.stmt.IfStmt;
@@ -15,7 +17,9 @@ import dto.AnalyzerEdge;
 import dto.AnalyzerNode;
 import dto.GraphDTO;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 
 public final class BuildCfgAction {
@@ -33,6 +37,7 @@ public final class BuildCfgAction {
     private static final class CfgVisitor extends VoidVisitorAdapter<FlowContext> {
         private final List<AnalyzerNode> nodes = new ArrayList<>();
         private final List<AnalyzerEdge> edges = new ArrayList<>();
+        private final Deque<LoopContext> loopContexts = new ArrayDeque<>();
         private int nodeSequence = 1;
         private int edgeSequence = 1;
 
@@ -68,6 +73,14 @@ public final class BuildCfgAction {
                 return buildForStatement(statement.asForStmt(), incomingTails);
             }
 
+            if (statement.isBreakStmt()) {
+                return buildBreakStatement(statement.asBreakStmt(), incomingTails);
+            }
+
+            if (statement.isContinueStmt()) {
+                return buildContinueStatement(statement.asContinueStmt(), incomingTails);
+            }
+
             if (statement.isExpressionStmt()) {
                 return buildExpressionStatement(statement.asExpressionStmt(), incomingTails);
             }
@@ -100,13 +113,17 @@ public final class BuildCfgAction {
             nodes.add(conditionNode);
             connectTails(incomingTails, conditionNode.id());
 
+            LoopContext loopContext = new LoopContext(conditionNode.id());
+            loopContexts.push(loopContext);
+
             List<FlowTail> bodyTails = buildStatement(
                     whileStmt.getBody(),
                     List.of(new FlowTail(conditionNode.id(), "true"))
             );
+            loopContexts.pop();
             connectBackEdges(bodyTails, conditionNode.id());
 
-            return List.of(new FlowTail(conditionNode.id(), "false"));
+            return loopExits(conditionNode.id(), loopContext);
         }
 
         private List<FlowTail> buildForStatement(ForStmt forStmt, List<FlowTail> incomingTails) {
@@ -124,18 +141,53 @@ public final class BuildCfgAction {
             nodes.add(conditionNode);
             connectTails(currentTails, conditionNode.id());
 
+            List<AnalyzerNode> updateNodes = createUpdateNodes(forStmt);
+            String continueTargetNodeId = updateNodes.isEmpty() ? conditionNode.id() : updateNodes.getFirst().id();
+            LoopContext loopContext = new LoopContext(continueTargetNodeId);
+            loopContexts.push(loopContext);
+
             List<FlowTail> bodyTails = buildStatement(
                     forStmt.getBody(),
                     List.of(new FlowTail(conditionNode.id(), "true"))
             );
+            loopContexts.pop();
 
-            List<FlowTail> updateTails = bodyTails;
-            for (Expression update : forStmt.getUpdate()) {
-                updateTails = buildActionNode(update.toString(), update, updateTails);
+            if (updateNodes.isEmpty()) {
+                connectBackEdges(bodyTails, conditionNode.id());
+            } else if (!bodyTails.isEmpty() || loopContext.hasContinue()) {
+                List<FlowTail> updateTails = buildPrecreatedActionNodes(updateNodes, bodyTails);
+                connectBackEdges(updateTails, conditionNode.id());
             }
-            connectBackEdges(updateTails, conditionNode.id());
 
-            return List.of(new FlowTail(conditionNode.id(), "false"));
+            return loopExits(conditionNode.id(), loopContext);
+        }
+
+        private List<FlowTail> buildBreakStatement(BreakStmt breakStmt, List<FlowTail> incomingTails) {
+            AnalyzerNode breakNode = createNode("action", "break", breakStmt);
+            nodes.add(breakNode);
+            connectTails(incomingTails, breakNode.id());
+
+            if (loopContexts.isEmpty()) {
+                return List.of(new FlowTail(breakNode.id(), null));
+            }
+
+            loopContexts.peek().breakTails().add(new FlowTail(breakNode.id(), "break"));
+            return List.of();
+        }
+
+        private List<FlowTail> buildContinueStatement(ContinueStmt continueStmt, List<FlowTail> incomingTails) {
+            AnalyzerNode continueNode = createNode("action", "continue", continueStmt);
+            nodes.add(continueNode);
+            connectTails(incomingTails, continueNode.id());
+
+            if (loopContexts.isEmpty()) {
+                return List.of(new FlowTail(continueNode.id(), null));
+            }
+
+            LoopContext loopContext = loopContexts.peek();
+            loopContext.registerContinue();
+            connectBackEdges(List.of(new FlowTail(continueNode.id(), "continue")), loopContext.continueTargetNodeId());
+            return List.of();
         }
 
         private List<FlowTail> buildExpressionStatement(
@@ -152,6 +204,33 @@ public final class BuildCfgAction {
             nodes.add(node);
             connectTails(incomingTails, node.id());
             return List.of(new FlowTail(node.id(), null));
+        }
+
+        private List<AnalyzerNode> createUpdateNodes(ForStmt forStmt) {
+            List<AnalyzerNode> updateNodes = new ArrayList<>();
+            for (Expression update : forStmt.getUpdate()) {
+                updateNodes.add(createNode("action", update.toString(), update));
+            }
+            return updateNodes;
+        }
+
+        private List<FlowTail> buildPrecreatedActionNodes(List<AnalyzerNode> actionNodes, List<FlowTail> incomingTails) {
+            List<FlowTail> currentTails = incomingTails;
+
+            for (AnalyzerNode actionNode : actionNodes) {
+                nodes.add(actionNode);
+                connectTails(currentTails, actionNode.id());
+                currentTails = List.of(new FlowTail(actionNode.id(), null));
+            }
+
+            return currentTails;
+        }
+
+        private List<FlowTail> loopExits(String conditionNodeId, LoopContext loopContext) {
+            List<FlowTail> exits = new ArrayList<>();
+            exits.add(new FlowTail(conditionNodeId, "false"));
+            exits.addAll(loopContext.breakTails());
+            return List.copyOf(exits);
         }
 
         private AnalyzerNode createNode(String type, String label, Node sourceNode) {
@@ -197,5 +276,31 @@ public final class BuildCfgAction {
     }
 
     private record FlowTail(String nodeId, String label) {
+    }
+
+    private static final class LoopContext {
+        private final String continueTargetNodeId;
+        private final List<FlowTail> breakTails = new ArrayList<>();
+        private boolean hasContinue;
+
+        private LoopContext(String continueTargetNodeId) {
+            this.continueTargetNodeId = continueTargetNodeId;
+        }
+
+        private String continueTargetNodeId() {
+            return continueTargetNodeId;
+        }
+
+        private List<FlowTail> breakTails() {
+            return breakTails;
+        }
+
+        private boolean hasContinue() {
+            return hasContinue;
+        }
+
+        private void registerContinue() {
+            hasContinue = true;
+        }
     }
 }
