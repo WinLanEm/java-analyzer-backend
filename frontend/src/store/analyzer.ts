@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { AnalyzerEdge, AnalyzerNode, BackendPayload, ExecutionStep } from '../types'
+import type { AnalyzerEdge, AnalyzerNode, BackendPayload, ExecutionStep, GraphDTO, ObjectInstance } from '../types'
 
 const API_URL = 'http://localhost:8080'  //БЭКЕНД
 
@@ -19,6 +19,7 @@ const defaultCode = `public class Demo {
 
 interface AnalyzerState {
   code: string
+  graphs: Record<string, GraphDTO>
   nodes: AnalyzerNode[]
   edges: AnalyzerEdge[]
   executionTrace: ExecutionStep[]
@@ -31,6 +32,7 @@ interface AnalyzerState {
 export const useAnalyzerStore = defineStore('analyzer', {
   state: (): AnalyzerState => ({
     code: defaultCode,
+    graphs: {},
     nodes: [],
     edges: [],
     executionTrace: [],
@@ -45,16 +47,42 @@ export const useAnalyzerStore = defineStore('analyzer', {
       return (
         state.executionTrace[state.currentStepIndex] ?? {
           step: 0,
+          methodSignature: null,
           activeNodeId: null,
           memory: {},
+          callStack: [],
+          heap: [],
         }
       )
+    },
+    activeMethodSignature(): string | null {
+      return this.currentStepData.methodSignature
     },
     activeNodeId(): string | null {
       return this.currentStepData.activeNodeId
     },
     currentMemory(): Record<string, any> {
       return this.currentStepData.memory
+    },
+    visibleMemory(): Record<string, any> {
+      return Object.fromEntries(
+        Object.entries(this.currentStepData.memory).filter(([key]) => key !== 'this' && !key.startsWith('__'))
+      )
+    },
+    currentHeap(): ObjectInstance[] {
+      return this.currentStepData.heap ?? []
+    },
+    isExceptionStalled(): boolean {
+      const activeNodeId = this.currentStepData.activeNodeId
+      if (activeNodeId === null) {
+        return true
+      }
+      if (activeNodeId === 'runtime-error' || activeNodeId.startsWith('exit')) {
+        return true
+      }
+
+      const node = this.nodes.find((candidate) => candidate.id === this.currentStepData.activeNodeId)
+      return node?.label?.trim().startsWith('EXIT') ?? false
     },
   },
   
@@ -64,6 +92,7 @@ export const useAnalyzerStore = defineStore('analyzer', {
       this.isAnalyzed = false
       this.nodes = []
       this.edges = []
+      this.graphs = {}
       this.executionTrace = []
       this.errorMessage = null
 
@@ -92,10 +121,10 @@ export const useAnalyzerStore = defineStore('analyzer', {
 
         const data: BackendPayload = await response.json()
         
-        this.nodes = data.graph.nodes
-        this.edges = data.graph.edges
+        this.graphs = data.graphs
         this.executionTrace = data.executionTrace
         this.currentStepIndex = 0
+        this.syncActiveGraph()
         
       } catch (error) {
         console.error('Analysis failed:', error)
@@ -104,6 +133,7 @@ export const useAnalyzerStore = defineStore('analyzer', {
         
         this.nodes = []
         this.edges = []
+        this.graphs = {}
         this.executionTrace = []
         this.isAnalyzed = false
         
@@ -115,18 +145,32 @@ export const useAnalyzerStore = defineStore('analyzer', {
     
     reset() {
       this.currentStepIndex = 0
+      this.syncActiveGraph()
     },
     
     stepForward() {
+      if (this.isExceptionStalled) {
+        return
+      }
       if (this.currentStepIndex < this.executionTrace.length - 1) {
         this.currentStepIndex++
+        this.syncActiveGraph()
       }
     },
     
     stepBackward() {
       if (this.currentStepIndex > 0) {
         this.currentStepIndex--
+        this.syncActiveGraph()
       }
+    },
+
+    syncActiveGraph() {
+      const methodSignature = this.currentStepData.methodSignature
+      const graph = methodSignature ? this.graphs[methodSignature] : undefined
+
+      this.nodes = graph?.nodes ?? []
+      this.edges = graph?.edges ?? []
     },
   },
 })

@@ -82,32 +82,39 @@ const flowEdges = computed<Edge[]>(() => {
   })
 })
 
-// Теперь мы строим граф не при загрузке страницы, а когда пришли данные от "бэкенда"
+function rebuildFlowLayout() {
+  if (!analyzerStore.isAnalyzed) {
+    flowNodes.value = []
+    return
+  }
+
+  const mappedNodes: Node[] = analyzerStore.nodes.map((node) => ({
+    id: node.id,
+    type: node.type,
+    data: node,
+    position: { x: 0, y: 0 }
+  }))
+
+  const mappedEdges: Edge[] = analyzerStore.edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    type: 'smoothstep',
+    isBackEdge: edge.isBackEdge,
+    label: edge.label
+  }))
+
+  flowNodes.value = applyDagreLayout(mappedNodes, mappedEdges) as Node[]
+}
+
 watch(
     () => analyzerStore.isAnalyzed,
-    (isAnalyzed) => {
-      if (isAnalyzed) {
-        const mappedNodes: Node[] = analyzerStore.nodes.map((node) => ({
-          id: node.id,
-          type: node.type,
-          data: node,
-          position: { x: 0, y: 0 }
-        }))
+    () => rebuildFlowLayout()
+)
 
-        const mappedEdges: Edge[] = analyzerStore.edges.map((edge) => ({
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          type: 'smoothstep',
-          isBackEdge: edge.isBackEdge,
-          label: edge.label
-        }))
-
-        flowNodes.value = applyDagreLayout(mappedNodes, mappedEdges) as Node[]
-      } else {
-        flowNodes.value = []
-      }
-    }
+watch(
+    () => analyzerStore.activeMethodSignature,
+    () => rebuildFlowLayout()
 )
 
 watch(
@@ -191,14 +198,14 @@ function isThrowNode(node: AnalyzerNode): boolean {
         </div>
 
         <template v-if="analyzerStore.isAnalyzed">
-          <div class="absolute top-4 right-4 z-10 bg-white/90 backdrop-blur border border-slate-200 rounded-xl p-4 shadow-xl min-w-[200px]">
+          <div class="absolute top-10 right-4 z-10 bg-white/90 backdrop-blur border border-slate-200 rounded-xl p-4 shadow-xl min-w-[200px]">
             <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Memory Stack</h3>
-            <div v-if="Object.keys(analyzerStore.currentMemory).length === 0" class="text-sm text-slate-400 italic">
+            <div v-if="Object.keys(analyzerStore.visibleMemory).length === 0" class="text-sm text-slate-400 italic">
               Empty
             </div>
             <div v-else class="space-y-1">
               <div
-                  v-for="(value, key) in analyzerStore.currentMemory"
+                  v-for="(value, key) in analyzerStore.visibleMemory"
                   :key="key"
                   :class="[
                     isErrorMemoryKey(key)
@@ -219,10 +226,32 @@ function isThrowNode(node: AnalyzerNode): boolean {
             <div class="mt-3 text-xs text-slate-400 border-t pt-2 text-center">
               Step {{ analyzerStore.currentStepIndex }} / {{ analyzerStore.executionTrace.length - 1 }}
             </div>
+            <div class="mt-4 border-t pt-3">
+              <h3 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Heap</h3>
+              <div v-if="analyzerStore.currentHeap.length === 0" class="text-sm text-slate-400 italic">
+                Empty
+              </div>
+              <div v-else class="space-y-2">
+                <div
+                    v-for="object in analyzerStore.currentHeap"
+                    :key="object.id"
+                    class="rounded-md border border-sky-300 bg-sky-50 p-2 text-xs text-slate-800"
+                >
+                  <div class="font-mono font-bold text-sky-700">{{ object.className }} (#{{ object.id }})</div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div class="absolute inset-0">
-            <VueFlow v-if="flowNodes.length > 0" :nodes="flowNodes" :edges="flowEdges" :fit-view-on-init="true">
+          <div class="absolute inset-0 flex flex-col">
+            <div class="sticky top-0 z-20 bg-slate-800/80 backdrop-blur text-sm py-2 px-4 border-b border-slate-700 flex items-center gap-2 text-slate-100">
+              <span class="font-semibold text-sky-300">▣ Class</span>
+              <span class="font-mono">{{ analyzerStore.currentStepData.currentContext?.className ?? 'Unknown' }}</span>
+              <span class="text-slate-400">></span>
+              <span class="font-semibold text-emerald-300">ƒ Method</span>
+              <span class="font-mono">{{ analyzerStore.currentStepData.currentContext?.methodName ?? 'Unknown' }}</span>
+            </div>
+            <VueFlow v-if="flowNodes.length > 0" class="flex-1" :nodes="flowNodes" :edges="flowEdges" :fit-view-on-init="true">
               <Background pattern-color="#94a3b8" />
 
               <template #node-action="props">
@@ -285,7 +314,7 @@ function isThrowNode(node: AnalyzerNode): boolean {
             <button
                 class="rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 @click="analyzerStore.stepForward()"
-                :disabled="analyzerStore.currentStepIndex === analyzerStore.executionTrace.length - 1"
+                :disabled="analyzerStore.currentStepIndex === analyzerStore.executionTrace.length - 1 || analyzerStore.isExceptionStalled"
             >
               Step Forward
             </button>
