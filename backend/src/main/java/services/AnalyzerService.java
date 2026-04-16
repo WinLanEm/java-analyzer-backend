@@ -7,6 +7,7 @@ import dto.ExecutionStep;
 import dto.GraphDTO;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 public final class AnalyzerService {
@@ -26,8 +27,8 @@ public final class AnalyzerService {
             throw new IllegalArgumentException("Code must not be blank.");
         }
 
-        GraphDTO graph = buildCfgAction.execute(code);
-        List<ExecutionStep> executionTrace = simulateExecutionAction.execute(graph);
-        return new AnalyzeResponse(graph, executionTrace);
+        Map<String, GraphDTO> graphs = buildCfgAction.execute(code);
+        List<ExecutionStep> executionTrace = simulateExecutionAction.execute(graphs);
+        return new AnalyzeResponse(graphs, executionTrace);
     }
 }

@@ -6,29 +6,37 @@ import com.github.javaparser.ParseStart;
 import com.github.javaparser.Providers;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.BreakStmt;
 import com.github.javaparser.ast.stmt.ContinueStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
 import com.github.javaparser.ast.stmt.IfStmt;
+import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.stmt.Statement;
 import com.github.javaparser.ast.stmt.ThrowStmt;
 import com.github.javaparser.ast.stmt.WhileStmt;
-import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import dto.AnalyzerEdge;
 import dto.AnalyzerNode;
 import dto.GraphDTO;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public final class BuildCfgAction {
 
-    public GraphDTO execute(String code) {
+    public Map<String, GraphDTO> execute(String code) {
         ParseResult<CompilationUnit> parseResult = new JavaParser()
                 .parse(ParseStart.COMPILATION_UNIT, Providers.provider(code));
 
@@ -44,12 +52,28 @@ public final class BuildCfgAction {
 
         CompilationUnit compilationUnit = parseResult.getResult()
                 .orElseThrow(() -> new CodeParsingException("Unable to parse Java code."));
-        CfgVisitor visitor = new CfgVisitor();
-        FlowContext context = new FlowContext(List.of());
 
-        visitor.visit(compilationUnit, context);
+        List<MethodDeclaration> methods = compilationUnit.findAll(MethodDeclaration.class);
+        Map<String, ClassOrInterfaceDeclaration> classIndex = indexClasses(compilationUnit);
+        Map<String, Map<String, Object>> fieldIndex = indexFields(classIndex);
+        Map<String, String> methodIndex = indexMethods(methods);
+        Map<String, GraphDTO> graphs = new LinkedHashMap<>();
 
-        return new GraphDTO(List.copyOf(visitor.nodes), List.copyOf(visitor.edges));
+        for (MethodDeclaration method : methods) {
+            method.getBody().ifPresent(body -> {
+                String methodSignature = methodSignature(method);
+                String className = className(method);
+                MethodGraphBuilder builder = new MethodGraphBuilder(
+                        methodIndex,
+                        className,
+                        method.getNameAsString(),
+                        fieldIndex.getOrDefault(className, Map.of())
+                );
+                graphs.put(methodSignature, builder.build(method, body));
+            });
+        }
+
+        return Map.copyOf(graphs);
     }
 
     public static final class CodeParsingException extends IllegalArgumentException {
@@ -58,7 +82,95 @@ public final class BuildCfgAction {
         }
     }
 
-    private static final class CfgVisitor extends VoidVisitorAdapter<FlowContext> {
+    private Map<String, String> indexMethods(List<MethodDeclaration> methods) {
+        Map<String, String> methodIndex = new LinkedHashMap<>();
+        for (MethodDeclaration method : methods) {
+            methodIndex.putIfAbsent(method.getNameAsString(), methodSignature(method));
+        }
+        return methodIndex;
+    }
+
+    private Map<String, ClassOrInterfaceDeclaration> indexClasses(CompilationUnit compilationUnit) {
+        Map<String, ClassOrInterfaceDeclaration> classIndex = new LinkedHashMap<>();
+        for (ClassOrInterfaceDeclaration classDeclaration : compilationUnit.findAll(ClassOrInterfaceDeclaration.class)) {
+            classIndex.put(classDeclaration.getNameAsString(), classDeclaration);
+        }
+        return Map.copyOf(classIndex);
+    }
+
+    private Map<String, Map<String, Object>> indexFields(Map<String, ClassOrInterfaceDeclaration> classIndex) {
+        Map<String, Map<String, Object>> fieldIndex = new LinkedHashMap<>();
+        for (Map.Entry<String, ClassOrInterfaceDeclaration> classEntry : classIndex.entrySet()) {
+            Map<String, Object> fields = new LinkedHashMap<>();
+            for (FieldDeclaration fieldDeclaration : classEntry.getValue().getFields()) {
+                for (VariableDeclarator variable : fieldDeclaration.getVariables()) {
+                    fields.put(variable.getNameAsString(), defaultValue(variable));
+                }
+            }
+            fieldIndex.put(classEntry.getKey(), Collections.unmodifiableMap(new LinkedHashMap<>(fields)));
+        }
+        return Collections.unmodifiableMap(fieldIndex);
+    }
+
+    private Object defaultValue(VariableDeclarator variable) {
+        if (variable.getInitializer().isPresent()) {
+            return literalValue(variable.getInitializer().get());
+        }
+
+        String type = variable.getTypeAsString();
+        if ("boolean".equals(type)) {
+            return false;
+        }
+        if ("byte".equals(type) || "short".equals(type) || "int".equals(type) || "long".equals(type)
+                || "float".equals(type) || "double".equals(type) || "char".equals(type)) {
+            return 0;
+        }
+        return null;
+    }
+
+    private Object literalValue(Expression expression) {
+        if (expression.isObjectCreationExpr()) {
+            return expression.asObjectCreationExpr().toString();
+        }
+        if (expression.isBooleanLiteralExpr()) {
+            return expression.asBooleanLiteralExpr().getValue();
+        }
+        if (expression.isIntegerLiteralExpr()) {
+            return expression.asIntegerLiteralExpr().asInt();
+        }
+        if (expression.isLongLiteralExpr()) {
+            return expression.asLongLiteralExpr().asLong();
+        }
+        if (expression.isDoubleLiteralExpr()) {
+            return expression.asDoubleLiteralExpr().asDouble();
+        }
+        if (expression.isCharLiteralExpr()) {
+            return expression.asCharLiteralExpr().asChar();
+        }
+        if (expression.isStringLiteralExpr()) {
+            return expression.asStringLiteralExpr().asString();
+        }
+        if (expression.isNullLiteralExpr()) {
+            return null;
+        }
+        return 0;
+    }
+
+    private static String methodSignature(MethodDeclaration method) {
+        return className(method) + "." + method.getNameAsString();
+    }
+
+    private static String className(MethodDeclaration method) {
+        return method.findAncestor(ClassOrInterfaceDeclaration.class)
+                .map(ClassOrInterfaceDeclaration::getNameAsString)
+                .orElse("Global");
+    }
+
+    private static final class MethodGraphBuilder {
+        private final Map<String, String> methodIndex;
+        private final String className;
+        private final String methodName;
+        private final Map<String, Object> classFields;
         private final List<AnalyzerNode> nodes = new ArrayList<>();
         private final List<AnalyzerEdge> edges = new ArrayList<>();
         private final Deque<LoopContext> loopContexts = new ArrayDeque<>();
@@ -66,9 +178,31 @@ public final class BuildCfgAction {
         private int edgeSequence = 1;
         private AnalyzerNode exceptionExitNode;
 
-        @Override
-        public void visit(BlockStmt blockStmt, FlowContext context) {
-            context.tails = buildBlock(blockStmt, context.tails);
+        private MethodGraphBuilder(
+                Map<String, String> methodIndex,
+                String className,
+                String methodName,
+                Map<String, Object> classFields
+        ) {
+            this.methodIndex = methodIndex;
+            this.className = className;
+            this.methodName = methodName;
+            this.classFields = classFields;
+        }
+
+        private GraphDTO build(MethodDeclaration method, BlockStmt body) {
+            buildBlock(body, List.of());
+            List<String> parameters = method.getParameters().stream()
+                    .map(parameter -> parameter.getNameAsString())
+                    .toList();
+            return new GraphDTO(
+                    List.copyOf(nodes),
+                    List.copyOf(edges),
+                    parameters,
+                    className,
+                    methodName,
+                    Collections.unmodifiableMap(new LinkedHashMap<>(classFields))
+            );
         }
 
         private List<FlowTail> buildBlock(BlockStmt blockStmt, List<FlowTail> incomingTails) {
@@ -85,31 +219,27 @@ public final class BuildCfgAction {
             if (statement.isBlockStmt()) {
                 return buildBlock(statement.asBlockStmt(), incomingTails);
             }
-
             if (statement.isIfStmt()) {
                 return buildIfStatement(statement.asIfStmt(), incomingTails);
             }
-
             if (statement.isWhileStmt()) {
                 return buildWhileStatement(statement.asWhileStmt(), incomingTails);
             }
-
             if (statement.isForStmt()) {
                 return buildForStatement(statement.asForStmt(), incomingTails);
             }
-
             if (statement.isBreakStmt()) {
                 return buildBreakStatement(statement.asBreakStmt(), incomingTails);
             }
-
             if (statement.isContinueStmt()) {
                 return buildContinueStatement(statement.asContinueStmt(), incomingTails);
             }
-
             if (statement.isThrowStmt()) {
                 return buildThrowStatement(statement.asThrowStmt(), incomingTails);
             }
-
+            if (statement.isReturnStmt()) {
+                return buildReturnStatement(statement.asReturnStmt(), incomingTails);
+            }
             if (statement.isExpressionStmt()) {
                 return buildExpressionStatement(statement.asExpressionStmt(), incomingTails);
             }
@@ -204,14 +334,6 @@ public final class BuildCfgAction {
             return List.of();
         }
 
-        private List<FlowTail> buildThrowStatement(ThrowStmt throwStmt, List<FlowTail> incomingTails) {
-            AnalyzerNode throwNode = createNode("action", "throw " + throwStmt.getExpression(), throwStmt, true);
-            nodes.add(throwNode);
-            connectTails(incomingTails, throwNode.id());
-            connectEdge(throwNode.id(), exceptionExitNode().id(), "throws", false);
-            return List.of();
-        }
-
         private List<FlowTail> buildContinueStatement(ContinueStmt continueStmt, List<FlowTail> incomingTails) {
             AnalyzerNode continueNode = createNode("action", "continue", continueStmt);
             nodes.add(continueNode);
@@ -227,17 +349,33 @@ public final class BuildCfgAction {
             return List.of();
         }
 
+        private List<FlowTail> buildThrowStatement(ThrowStmt throwStmt, List<FlowTail> incomingTails) {
+            AnalyzerNode throwNode = createNode("action", "throw " + throwStmt.getExpression(), throwStmt, true);
+            nodes.add(throwNode);
+            connectTails(incomingTails, throwNode.id());
+            connectEdge(throwNode.id(), exceptionExitNode().id(), "throws", false);
+            return List.of();
+        }
+
+        private List<FlowTail> buildReturnStatement(ReturnStmt returnStmt, List<FlowTail> incomingTails) {
+            String label = returnStmt.getExpression()
+                    .map(expression -> "return " + expression)
+                    .orElse("return");
+            AnalyzerNode returnNode = createNode("action", label, returnStmt);
+            nodes.add(returnNode);
+            connectTails(incomingTails, returnNode.id());
+            return List.of();
+        }
+
         private List<FlowTail> buildExpressionStatement(
                 ExpressionStmt expressionStatement,
                 List<FlowTail> incomingTails
         ) {
-            Expression expression = expressionStatement.getExpression();
-            return buildActionNode(expression.toString(), expressionStatement, incomingTails);
+            return buildActionNode(expressionStatement.getExpression().toString(), expressionStatement, incomingTails);
         }
 
         private List<FlowTail> buildActionNode(String label, Node sourceNode, List<FlowTail> incomingTails) {
-            AnalyzerNode node = createNode("action", label, sourceNode);
-
+            AnalyzerNode node = createActionNode(label, sourceNode);
             nodes.add(node);
             connectTails(incomingTails, node.id());
             return List.of(new FlowTail(node.id(), null));
@@ -246,9 +384,21 @@ public final class BuildCfgAction {
         private List<AnalyzerNode> createUpdateNodes(ForStmt forStmt) {
             List<AnalyzerNode> updateNodes = new ArrayList<>();
             for (Expression update : forStmt.getUpdate()) {
-                updateNodes.add(createNode("action", update.toString(), update));
+                updateNodes.add(createActionNode(update.toString(), update));
             }
             return updateNodes;
+        }
+
+        private AnalyzerNode createActionNode(String label, Node sourceNode) {
+            MethodCallExpr methodCallExpr = sourceNode.findFirst(MethodCallExpr.class).orElse(null);
+            if (methodCallExpr == null) {
+                return createNode("action", label, sourceNode);
+            }
+
+            String methodName = methodCallExpr.getNameAsString();
+            String receiver = methodCallExpr.getScope().map(Expression::toString).orElse(null);
+            String callTarget = receiver == null ? methodIndex.getOrDefault(methodName, methodName) : null;
+            return createNode("action", label, sourceNode, false, true, callTarget, receiver, methodName);
         }
 
         private List<FlowTail> buildPrecreatedActionNodes(List<AnalyzerNode> actionNodes, List<FlowTail> incomingTails) {
@@ -275,12 +425,29 @@ public final class BuildCfgAction {
         }
 
         private AnalyzerNode createNode(String type, String label, Node sourceNode, boolean isError) {
+            return createNode(type, label, sourceNode, isError, false, null, null, null);
+        }
+
+        private AnalyzerNode createNode(
+                String type,
+                String label,
+                Node sourceNode,
+                boolean isError,
+                boolean isCall,
+                String callTarget,
+                String callReceiver,
+                String callMethodName
+        ) {
             return new AnalyzerNode(
                     "node-" + nodeSequence++,
                     type,
                     label,
                     sourceNode.getBegin().map(position -> position.line).orElse(-1),
-                    isError
+                    isError,
+                    isCall,
+                    callTarget,
+                    callReceiver,
+                    callMethodName
             );
         }
 
@@ -291,7 +458,11 @@ public final class BuildCfgAction {
                         "action",
                         "EXIT (EXCEPTION)",
                         -1,
-                        true
+                        true,
+                        false,
+                        null,
+                        null,
+                        null
                 );
                 nodes.add(exceptionExitNode);
             }
@@ -318,14 +489,6 @@ public final class BuildCfgAction {
                     label,
                     isBackEdge
             ));
-        }
-    }
-
-    private static final class FlowContext {
-        private List<FlowTail> tails;
-
-        private FlowContext(List<FlowTail> tails) {
-            this.tails = tails;
         }
     }
 
