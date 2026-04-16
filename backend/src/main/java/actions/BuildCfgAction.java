@@ -1,6 +1,9 @@
 package actions;
 
-import com.github.javaparser.StaticJavaParser;
+import com.github.javaparser.JavaParser;
+import com.github.javaparser.ParseResult;
+import com.github.javaparser.ParseStart;
+import com.github.javaparser.Providers;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.expr.Expression;
@@ -11,6 +14,7 @@ import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.ForStmt;
 import com.github.javaparser.ast.stmt.IfStmt;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.stmt.ThrowStmt;
 import com.github.javaparser.ast.stmt.WhileStmt;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import dto.AnalyzerEdge;
@@ -25,7 +29,21 @@ import java.util.List;
 public final class BuildCfgAction {
 
     public GraphDTO execute(String code) {
-        CompilationUnit compilationUnit = StaticJavaParser.parse(code);
+        ParseResult<CompilationUnit> parseResult = new JavaParser()
+                .parse(ParseStart.COMPILATION_UNIT, Providers.provider(code));
+
+        if (!parseResult.isSuccessful()) {
+            String message = parseResult.getProblems().stream()
+                    .map(problem -> problem.getLocation()
+                            .map(location -> problem.getMessage() + " at " + location)
+                            .orElse(problem.getMessage()))
+                    .reduce((left, right) -> left + System.lineSeparator() + right)
+                    .orElse("Unable to parse Java code.");
+            throw new CodeParsingException(message);
+        }
+
+        CompilationUnit compilationUnit = parseResult.getResult()
+                .orElseThrow(() -> new CodeParsingException("Unable to parse Java code."));
         CfgVisitor visitor = new CfgVisitor();
         FlowContext context = new FlowContext(List.of());
 
@@ -34,12 +52,19 @@ public final class BuildCfgAction {
         return new GraphDTO(List.copyOf(visitor.nodes), List.copyOf(visitor.edges));
     }
 
+    public static final class CodeParsingException extends IllegalArgumentException {
+        public CodeParsingException(String message) {
+            super(message);
+        }
+    }
+
     private static final class CfgVisitor extends VoidVisitorAdapter<FlowContext> {
         private final List<AnalyzerNode> nodes = new ArrayList<>();
         private final List<AnalyzerEdge> edges = new ArrayList<>();
         private final Deque<LoopContext> loopContexts = new ArrayDeque<>();
         private int nodeSequence = 1;
         private int edgeSequence = 1;
+        private AnalyzerNode exceptionExitNode;
 
         @Override
         public void visit(BlockStmt blockStmt, FlowContext context) {
@@ -79,6 +104,10 @@ public final class BuildCfgAction {
 
             if (statement.isContinueStmt()) {
                 return buildContinueStatement(statement.asContinueStmt(), incomingTails);
+            }
+
+            if (statement.isThrowStmt()) {
+                return buildThrowStatement(statement.asThrowStmt(), incomingTails);
             }
 
             if (statement.isExpressionStmt()) {
@@ -175,6 +204,14 @@ public final class BuildCfgAction {
             return List.of();
         }
 
+        private List<FlowTail> buildThrowStatement(ThrowStmt throwStmt, List<FlowTail> incomingTails) {
+            AnalyzerNode throwNode = createNode("action", "throw " + throwStmt.getExpression(), throwStmt, true);
+            nodes.add(throwNode);
+            connectTails(incomingTails, throwNode.id());
+            connectEdge(throwNode.id(), exceptionExitNode().id(), "throws", false);
+            return List.of();
+        }
+
         private List<FlowTail> buildContinueStatement(ContinueStmt continueStmt, List<FlowTail> incomingTails) {
             AnalyzerNode continueNode = createNode("action", "continue", continueStmt);
             nodes.add(continueNode);
@@ -234,36 +271,53 @@ public final class BuildCfgAction {
         }
 
         private AnalyzerNode createNode(String type, String label, Node sourceNode) {
+            return createNode(type, label, sourceNode, false);
+        }
+
+        private AnalyzerNode createNode(String type, String label, Node sourceNode, boolean isError) {
             return new AnalyzerNode(
                     "node-" + nodeSequence++,
                     type,
                     label,
-                    sourceNode.getBegin().map(position -> position.line).orElse(-1)
+                    sourceNode.getBegin().map(position -> position.line).orElse(-1),
+                    isError
             );
+        }
+
+        private AnalyzerNode exceptionExitNode() {
+            if (exceptionExitNode == null) {
+                exceptionExitNode = new AnalyzerNode(
+                        "exit-exception",
+                        "action",
+                        "EXIT (EXCEPTION)",
+                        -1,
+                        true
+                );
+                nodes.add(exceptionExitNode);
+            }
+            return exceptionExitNode;
         }
 
         private void connectTails(List<FlowTail> tails, String targetNodeId) {
             for (FlowTail tail : tails) {
-                edges.add(new AnalyzerEdge(
-                        "edge-" + edgeSequence++,
-                        tail.nodeId(),
-                        targetNodeId,
-                        tail.label() == null ? "next" : tail.label(),
-                        false
-                ));
+                connectEdge(tail.nodeId(), targetNodeId, tail.label() == null ? "next" : tail.label(), false);
             }
         }
 
         private void connectBackEdges(List<FlowTail> tails, String targetNodeId) {
             for (FlowTail tail : tails) {
-                edges.add(new AnalyzerEdge(
-                        "edge-" + edgeSequence++,
-                        tail.nodeId(),
-                        targetNodeId,
-                        tail.label() == null ? "back" : tail.label(),
-                        true
-                ));
+                connectEdge(tail.nodeId(), targetNodeId, tail.label() == null ? "back" : tail.label(), true);
             }
+        }
+
+        private void connectEdge(String sourceNodeId, String targetNodeId, String label, boolean isBackEdge) {
+            edges.add(new AnalyzerEdge(
+                    "edge-" + edgeSequence++,
+                    sourceNodeId,
+                    targetNodeId,
+                    label,
+                    isBackEdge
+            ));
         }
     }
 

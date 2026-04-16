@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, shallowRef, watch, computed } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { Editor } from '@guolao/vue-monaco-editor'
 import { Background } from '@vue-flow/background'
 import { Handle, Position, VueFlow } from '@vue-flow/core'
@@ -11,6 +11,7 @@ import { applyDagreLayout } from './utils/layout'
 import type { AnalyzerNode } from './types'
 
 const analyzerStore = useAnalyzerStore()
+let errorToastTimer: ReturnType<typeof setTimeout> | null = null
 
 // --- 1. ЛОГИКА MONACO EDITOR ---
 const monacoEditor = shallowRef<monaco.editor.IStandaloneCodeEditor | null>(null)
@@ -54,6 +55,10 @@ function handleEditorMount(editor: monaco.editor.IStandaloneCodeEditor) {
 
 // --- 2. ЛОГИКА ГРАФА VUE FLOW ---
 const flowNodes = ref<Node[]>([])
+
+const hasRuntimeError = computed(() => {
+  return Object.keys(analyzerStore.currentMemory).some((key) => key.startsWith('__error'))
+})
 
 const flowEdges = computed<Edge[]>(() => {
   return analyzerStore.edges.map((edge) => {
@@ -111,6 +116,37 @@ watch(
       updateActiveLineHighlight(activeNodeId)
     }
 )
+
+watch(
+    () => analyzerStore.errorMessage,
+    (errorMessage) => {
+      if (errorToastTimer) {
+        clearTimeout(errorToastTimer)
+        errorToastTimer = null
+      }
+
+      if (errorMessage) {
+        errorToastTimer = setTimeout(() => {
+          analyzerStore.errorMessage = null
+          errorToastTimer = null
+        }, 10000)
+      }
+    }
+)
+
+onBeforeUnmount(() => {
+  if (errorToastTimer) {
+    clearTimeout(errorToastTimer)
+  }
+})
+
+function isErrorMemoryKey(key: string | number): boolean {
+  return String(key).startsWith('__error')
+}
+
+function isThrowNode(node: AnalyzerNode): boolean {
+  return node.label.toLowerCase().includes('throw') || node.isError === true
+}
 </script>
 
 <template>
@@ -161,9 +197,23 @@ watch(
               Empty
             </div>
             <div v-else class="space-y-1">
-              <div v-for="(value, key) in analyzerStore.currentMemory" :key="key" class="flex justify-between items-center bg-slate-100 rounded px-2 py-1">
-                <span class="font-mono text-sm text-indigo-600 font-semibold">{{ key }}</span>
-                <span class="font-mono text-sm text-slate-800">{{ value }}</span>
+              <div
+                  v-for="(value, key) in analyzerStore.currentMemory"
+                  :key="key"
+                  :class="[
+                    isErrorMemoryKey(key)
+                      ? 'rounded-md border border-red-500 bg-red-900/90 p-3 text-red-100 shadow-lg'
+                      : 'flex justify-between items-center bg-slate-100 rounded px-2 py-1'
+                  ]"
+              >
+                <template v-if="isErrorMemoryKey(key)">
+                  <div class="text-xs font-bold uppercase tracking-wider text-red-300">Runtime Error</div>
+                  <div class="mt-1 font-mono text-sm text-red-100">{{ value }}</div>
+                </template>
+                <template v-else>
+                  <span class="font-mono text-sm text-indigo-600 font-semibold">{{ key }}</span>
+                  <span class="font-mono text-sm text-slate-800">{{ value }}</span>
+                </template>
               </div>
             </div>
             <div class="mt-3 text-xs text-slate-400 border-t pt-2 text-center">
@@ -177,8 +227,10 @@ watch(
 
               <template #node-action="props">
                 <div :class="[
-                  'bg-white border rounded-xl px-4 py-3 shadow-sm min-w-[200px] text-center transition-all duration-300',
-                  props.id === analyzerStore.activeNodeId ? 'ring-4 ring-indigo-500 border-indigo-500 scale-105 shadow-lg' : 'border-slate-300'
+                  'border rounded-xl px-4 py-3 shadow-sm min-w-[200px] text-center transition-all duration-300',
+                  isThrowNode(props.data as AnalyzerNode) ? 'bg-red-100 border-red-500' : 'bg-white border-slate-300',
+                  props.id === analyzerStore.activeNodeId && hasRuntimeError ? 'runtime-error-node scale-105 shadow-lg' : '',
+                  props.id === analyzerStore.activeNodeId && !hasRuntimeError ? 'ring-4 ring-indigo-500 border-indigo-500 scale-105 shadow-lg' : ''
                 ]">
                   <Handle id="top" type="target" :position="Position.Top" class="opacity-0" />
                   <Handle id="bottom" type="source" :position="Position.Bottom" class="opacity-0" />
@@ -186,7 +238,10 @@ watch(
                   <Handle id="left" type="target" :position="Position.Left" class="opacity-0" />
                   <Handle id="right" type="source" :position="Position.Right" class="opacity-0" />
                   <Handle id="right" type="target" :position="Position.Right" class="opacity-0" />
-                  <div class="text-xs font-bold text-slate-500 uppercase mb-1">Action</div>
+                  <div :class="[
+                    'text-xs font-bold uppercase mb-1',
+                    isThrowNode(props.data as AnalyzerNode) ? 'text-red-700' : 'text-slate-500'
+                  ]">Action</div>
                   <div class="font-bold text-slate-900">{{ (props.data as AnalyzerNode).label }}</div>
                   <div class="text-xs text-slate-500 mt-1">Line {{ (props.data as AnalyzerNode).line }}</div>
                 </div>
@@ -195,7 +250,9 @@ watch(
               <template #node-condition="props">
                 <div :class="[
                   'bg-amber-100 border rounded-xl px-4 py-3 shadow-sm min-w-[200px] text-center transition-all duration-300',
-                  props.id === analyzerStore.activeNodeId ? 'ring-4 ring-indigo-500 border-indigo-500 scale-105 shadow-lg' : 'border-amber-400'
+                  props.id === analyzerStore.activeNodeId && hasRuntimeError ? 'runtime-error-node scale-105 shadow-lg' : '',
+                  props.id === analyzerStore.activeNodeId && !hasRuntimeError ? 'ring-4 ring-indigo-500 border-indigo-500 scale-105 shadow-lg' : '',
+                  props.id !== analyzerStore.activeNodeId ? 'border-amber-400' : ''
                 ]">
                   <Handle id="top" type="target" :position="Position.Top" class="opacity-0" />
                   <Handle id="bottom" type="source" :position="Position.Bottom" class="opacity-0" />
@@ -236,6 +293,20 @@ watch(
         </template>
       </div>
     </div>
+
+    <div
+        v-if="analyzerStore.errorMessage"
+        class="fixed bottom-6 right-6 z-[9999] max-w-xl rounded-xl border border-red-500 bg-red-950 p-4 text-red-100 shadow-2xl"
+    >
+      <div class="font-bold text-red-200">Syntax Error</div>
+      <div class="mt-2 whitespace-pre-wrap font-mono text-sm">{{ analyzerStore.errorMessage }}</div>
+      <button
+          class="mt-4 rounded-md border border-red-400 px-3 py-1 text-sm font-semibold text-red-100 transition hover:bg-red-900"
+          @click="analyzerStore.errorMessage = null"
+      >
+        Close
+      </button>
+    </div>
   </div>
 </template>
 
@@ -249,5 +320,18 @@ watch(
   margin-left: 6px;
   width: 10px !important;
   height: 10px !important;
+}
+.runtime-error-node {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.65);
+  animation: runtime-error-pulse 1.2s ease-in-out infinite;
+}
+@keyframes runtime-error-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0.2);
+  }
 }
 </style>

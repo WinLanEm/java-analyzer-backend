@@ -3,6 +3,7 @@ export interface AnalyzerNode {
   label: string
   type: 'action' | 'condition'
   line: number
+  isError?: boolean
 }
 
 export interface AnalyzerEdge {
@@ -10,6 +11,7 @@ export interface AnalyzerEdge {
   source: string
   target: string
   label?: string
+  isBackEdge?: boolean
 }
 export interface ExecutionStep {
   step: number

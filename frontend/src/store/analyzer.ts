@@ -25,6 +25,7 @@ interface AnalyzerState {
   currentStepIndex: number
   isLoading: boolean
   isAnalyzed: boolean
+  errorMessage: string | null
 }
 
 export const useAnalyzerStore = defineStore('analyzer', {
@@ -36,6 +37,7 @@ export const useAnalyzerStore = defineStore('analyzer', {
     currentStepIndex: 0,
     isLoading: false,
     isAnalyzed: false,
+    errorMessage: null,
   }),
   
   getters: {
@@ -63,6 +65,7 @@ export const useAnalyzerStore = defineStore('analyzer', {
       this.nodes = []
       this.edges = []
       this.executionTrace = []
+      this.errorMessage = null
 
       try {
         const response = await fetch(`${API_URL}/analyze`, {
@@ -74,7 +77,17 @@ export const useAnalyzerStore = defineStore('analyzer', {
         })
 
         if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`)
+          let errorMessage = `Backend returned HTTP ${response.status}`
+
+          try {
+            const errorBody = await response.json()
+            errorMessage = errorBody.error ?? errorMessage
+          } catch {
+            // Keep the status-based fallback when the response body is not JSON.
+          }
+
+          this.errorMessage = errorMessage
+          return
         }
 
         const data: BackendPayload = await response.json()
@@ -87,6 +100,7 @@ export const useAnalyzerStore = defineStore('analyzer', {
       } catch (error) {
         console.error('Analysis failed:', error)
         alert('Ошибка при анализе кода. Убедитесь что бэкенд запущен на порту 8080')
+        this.errorMessage = 'Check backend connection'
         
         this.nodes = []
         this.edges = []
@@ -95,7 +109,7 @@ export const useAnalyzerStore = defineStore('analyzer', {
         
       } finally {
         this.isLoading = false
-        this.isAnalyzed = true
+        this.isAnalyzed = this.errorMessage === null
       }
     },
     

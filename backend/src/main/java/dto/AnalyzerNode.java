@@ -4,6 +4,7 @@ public record AnalyzerNode(
         String id,
         String type,
         String label,
-        int line
+        int line,
+        boolean isError
 ) {
 }

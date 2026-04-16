@@ -13,6 +13,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class SimulateExecutionAction {
+    private static final String RUNTIME_ERROR_NODE_ID = "runtime-error";
     private static final Pattern DECLARATION_PATTERN = Pattern.compile(
             "^(?:final\\s+)?(?:byte|short|int|long|float|double|boolean|char|String|var)\\s+(.+)$"
     );
@@ -41,7 +42,13 @@ public final class SimulateExecutionAction {
             trace.add(new ExecutionStep(step, currentNode.id(), snapshotMemory(memory)));
 
             if ("action".equals(currentNode.type())) {
-                executeAction(currentNode.label(), memory);
+                try {
+                    executeAction(currentNode.label(), memory);
+                } catch (VirtualExecutionException exception) {
+                    memory.put("__error", exception.getMessage());
+                    trace.add(new ExecutionStep(step + 1, RUNTIME_ERROR_NODE_ID, snapshotMemory(memory)));
+                    break;
+                }
             }
 
             List<AnalyzerEdge> outgoingEdges = edgesBySource.getOrDefault(currentNode.id(), List.of());
@@ -172,7 +179,12 @@ public final class SimulateExecutionAction {
                 case "+" -> result + value;
                 case "-" -> result - value;
                 case "*" -> result * value;
-                case "/" -> value == 0 ? 0 : result / value;
+                case "/" -> {
+                    if (value == 0) {
+                        throw new VirtualExecutionException("Division by zero.");
+                    }
+                    yield result / value;
+                }
                 default -> result;
             };
         }
@@ -252,5 +264,11 @@ public final class SimulateExecutionAction {
         }
 
         return value;
+    }
+
+    private static final class VirtualExecutionException extends RuntimeException {
+        private VirtualExecutionException(String message) {
+            super(message);
+        }
     }
 }
