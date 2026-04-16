@@ -4,6 +4,7 @@ public record AnalyzerEdge(
         String id,
         String source,
         String target,
-        String label
+        String label,
+        boolean isBackEdge
 ) {
 }

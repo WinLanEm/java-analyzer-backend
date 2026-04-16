@@ -104,7 +104,7 @@ public final class BuildCfgAction {
                     whileStmt.getBody(),
                     List.of(new FlowTail(conditionNode.id(), "true"))
             );
-            connectTails(bodyTails, conditionNode.id());
+            connectBackEdges(bodyTails, conditionNode.id());
 
             return List.of(new FlowTail(conditionNode.id(), "false"));
         }
@@ -133,7 +133,7 @@ public final class BuildCfgAction {
             for (Expression update : forStmt.getUpdate()) {
                 updateTails = buildActionNode(update.toString(), update, updateTails);
             }
-            connectTails(updateTails, conditionNode.id());
+            connectBackEdges(updateTails, conditionNode.id());
 
             return List.of(new FlowTail(conditionNode.id(), "false"));
         }
@@ -169,7 +169,20 @@ public final class BuildCfgAction {
                         "edge-" + edgeSequence++,
                         tail.nodeId(),
                         targetNodeId,
-                        tail.label() == null ? "next" : tail.label()
+                        tail.label() == null ? "next" : tail.label(),
+                        false
+                ));
+            }
+        }
+
+        private void connectBackEdges(List<FlowTail> tails, String targetNodeId) {
+            for (FlowTail tail : tails) {
+                edges.add(new AnalyzerEdge(
+                        "edge-" + edgeSequence++,
+                        tail.nodeId(),
+                        targetNodeId,
+                        tail.label() == null ? "back" : tail.label(),
+                        true
                 ));
             }
         }
