@@ -1,25 +1,35 @@
+version: '3.8'
+
 services:
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: maven:3.9-eclipse-temurin-21
+    working_dir: /app
+    command: mvn compile exec:java -Dexec.mainClass="Application"
     ports:
       - "8080:8080"
+    volumes:
+      - ./backend:/app
+      - maven-cache:/root/.m2
     networks:
       - analyzer-network
-    restart: unless-stopped
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: node:20
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host --port 5173"
     ports:
-      - "80:80"
-    networks:
-      - analyzer-network
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
     depends_on:
       - backend
-    restart: unless-stopped
+    networks:
+      - analyzer-network
+
+volumes:
+  maven-cache:
+  frontend-node-modules:
 
 networks:
   analyzer-network:

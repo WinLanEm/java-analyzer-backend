@@ -3,9 +3,7 @@ package actions;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
-import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.Expression;
-import com.github.javaparser.ast.expr.VariableDeclarationExpr;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.IfStmt;
@@ -26,7 +24,6 @@ public final class BuildCfgAction {
         FlowContext context = new FlowContext(List.of());
 
         visitor.visit(compilationUnit, context);
-        visitor.completePendingBranches(context);
 
         return new GraphDTO(List.copyOf(visitor.nodes), List.copyOf(visitor.edges));
     }
@@ -39,60 +36,65 @@ public final class BuildCfgAction {
 
         @Override
         public void visit(BlockStmt blockStmt, FlowContext context) {
+            context.tails = buildBlock(blockStmt, context.tails);
+        }
+
+        private List<FlowTail> buildBlock(BlockStmt blockStmt, List<FlowTail> incomingTails) {
+            List<FlowTail> currentTails = incomingTails;
+
             for (Statement statement : blockStmt.getStatements()) {
-                statement.accept(this, context);
-            }
-        }
-
-        @Override
-        public void visit(ExpressionStmt expressionStmt, FlowContext context) {
-            Expression expression = expressionStmt.getExpression();
-
-            if (expression.isVariableDeclarationExpr()) {
-                expression.asVariableDeclarationExpr().accept(this, context);
-                return;
+                currentTails = buildStatement(statement, currentTails);
             }
 
-            if (expression.isAssignExpr()) {
-                expression.asAssignExpr().accept(this, context);
-                return;
+            return currentTails;
+        }
+
+        private List<FlowTail> buildStatement(Statement statement, List<FlowTail> incomingTails) {
+            if (statement.isBlockStmt()) {
+                return buildBlock(statement.asBlockStmt(), incomingTails);
             }
 
-            super.visit(expressionStmt, context);
+            if (statement.isIfStmt()) {
+                return buildIfStatement(statement.asIfStmt(), incomingTails);
+            }
+
+            if (statement.isExpressionStmt()) {
+                return buildExpressionStatement(statement.asExpressionStmt(), incomingTails);
+            }
+
+            return incomingTails;
         }
 
-        @Override
-        public void visit(VariableDeclarationExpr variableDeclarationExpr, FlowContext context) {
-            AnalyzerNode node = createNode("action", variableDeclarationExpr.toString(), variableDeclarationExpr);
-            nodes.add(node);
-            connectTails(context.tails, node.id());
-            context.tails = List.of(new FlowTail(node.id(), null));
-        }
-
-        @Override
-        public void visit(AssignExpr assignExpr, FlowContext context) {
-            AnalyzerNode node = createNode("action", assignExpr.toString(), assignExpr);
-            nodes.add(node);
-            connectTails(context.tails, node.id());
-            context.tails = List.of(new FlowTail(node.id(), null));
-        }
-
-        @Override
-        public void visit(IfStmt ifStmt, FlowContext context) {
+        private List<FlowTail> buildIfStatement(IfStmt ifStmt, List<FlowTail> incomingTails) {
             AnalyzerNode conditionNode = createNode("condition", ifStmt.getCondition().toString(), ifStmt);
             nodes.add(conditionNode);
-            connectTails(context.tails, conditionNode.id());
+            connectTails(incomingTails, conditionNode.id());
 
-            FlowContext trueContext = new FlowContext(List.of(new FlowTail(conditionNode.id(), "true")));
-            ifStmt.getThenStmt().accept(this, trueContext);
+            List<FlowTail> trueBranchTails = buildStatement(
+                    ifStmt.getThenStmt(),
+                    List.of(new FlowTail(conditionNode.id(), "true"))
+            );
 
-            FlowContext falseContext = new FlowContext(List.of(new FlowTail(conditionNode.id(), "false")));
-            ifStmt.getElseStmt().ifPresent(elseStmt -> elseStmt.accept(this, falseContext));
+            List<FlowTail> falseBranchTails = ifStmt.getElseStmt()
+                    .map(elseStmt -> buildStatement(elseStmt, List.of(new FlowTail(conditionNode.id(), "false"))))
+                    .orElseGet(() -> List.of(new FlowTail(conditionNode.id(), "false")));
 
             List<FlowTail> mergedTails = new ArrayList<>();
-            mergedTails.addAll(trueContext.tails);
-            mergedTails.addAll(falseContext.tails);
-            context.tails = List.copyOf(mergedTails);
+            mergedTails.addAll(trueBranchTails);
+            mergedTails.addAll(falseBranchTails);
+            return List.copyOf(mergedTails);
+        }
+
+        private List<FlowTail> buildExpressionStatement(
+                ExpressionStmt expressionStatement,
+                List<FlowTail> incomingTails
+        ) {
+            Expression expression = expressionStatement.getExpression();
+            AnalyzerNode node = createNode("action", expression.toString(), expressionStatement);
+
+            nodes.add(node);
+            connectTails(incomingTails, node.id());
+            return List.of(new FlowTail(node.id(), null));
         }
 
         private AnalyzerNode createNode(String type, String label, Node sourceNode) {
@@ -113,19 +115,6 @@ public final class BuildCfgAction {
                         tail.label() == null ? "next" : tail.label()
                 ));
             }
-        }
-
-        private void completePendingBranches(FlowContext context) {
-            boolean hasPendingBranch = context.tails.stream().anyMatch(tail -> tail.label() != null);
-
-            if (!hasPendingBranch) {
-                return;
-            }
-
-            AnalyzerNode endNode = new AnalyzerNode("node-" + nodeSequence++, "end", "end", -1);
-            nodes.add(endNode);
-            connectTails(context.tails, endNode.id());
-            context.tails = List.of(new FlowTail(endNode.id(), null));
         }
     }
 

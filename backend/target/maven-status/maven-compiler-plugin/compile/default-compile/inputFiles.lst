@@ -1,0 +1,11 @@
+/app/src/main/java/Application.java
+/app/src/main/java/actions/BuildCfgAction.java
+/app/src/main/java/actions/SimulateExecutionAction.java
+/app/src/main/java/controllers/AnalyzeController.java
+/app/src/main/java/dto/AnalyzeRequest.java
+/app/src/main/java/dto/AnalyzeResponse.java
+/app/src/main/java/dto/AnalyzerEdge.java
+/app/src/main/java/dto/AnalyzerNode.java
+/app/src/main/java/dto/ExecutionStep.java
+/app/src/main/java/dto/GraphDTO.java
+/app/src/main/java/services/AnalyzerService.java
