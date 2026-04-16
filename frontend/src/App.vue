@@ -2,7 +2,7 @@
 import { ref, shallowRef, watch, computed } from 'vue'
 import { Editor } from '@guolao/vue-monaco-editor'
 import { Background } from '@vue-flow/background'
-import { VueFlow } from '@vue-flow/core'
+import { Handle, Position, VueFlow } from '@vue-flow/core'
 import type { Edge, Node } from '@vue-flow/core'
 import type * as monaco from 'monaco-editor'
 
@@ -59,10 +59,16 @@ const flowEdges = computed<Edge[]>(() => {
   return analyzerStore.edges.map((edge) => {
     const isActive = analyzerStore.activeNodeId !== null &&
         (edge.source === analyzerStore.activeNodeId || edge.target === analyzerStore.activeNodeId)
+    const sourceHandle = edge.isBackEdge ? 'left' : edge.label === 'false' ? 'right' : 'bottom'
+    const targetHandle = edge.isBackEdge ? 'left' : 'top'
+
     return {
       id: edge.id,
       source: edge.source,
       target: edge.target,
+      type: 'smoothstep',
+      sourceHandle,
+      targetHandle,
       label: edge.label,
       animated: isActive,
       style: { stroke: isActive ? '#22c55e' : '#64748b', strokeWidth: isActive ? 3 : 2 },
@@ -87,6 +93,8 @@ watch(
           id: edge.id,
           source: edge.source,
           target: edge.target,
+          type: 'smoothstep',
+          isBackEdge: edge.isBackEdge,
           label: edge.label
         }))
 
@@ -172,6 +180,12 @@ watch(
                   'bg-white border rounded-xl px-4 py-3 shadow-sm min-w-[200px] text-center transition-all duration-300',
                   props.id === analyzerStore.activeNodeId ? 'ring-4 ring-indigo-500 border-indigo-500 scale-105 shadow-lg' : 'border-slate-300'
                 ]">
+                  <Handle id="top" type="target" :position="Position.Top" class="opacity-0" />
+                  <Handle id="bottom" type="source" :position="Position.Bottom" class="opacity-0" />
+                  <Handle id="left" type="source" :position="Position.Left" class="opacity-0" />
+                  <Handle id="left" type="target" :position="Position.Left" class="opacity-0" />
+                  <Handle id="right" type="source" :position="Position.Right" class="opacity-0" />
+                  <Handle id="right" type="target" :position="Position.Right" class="opacity-0" />
                   <div class="text-xs font-bold text-slate-500 uppercase mb-1">Action</div>
                   <div class="font-bold text-slate-900">{{ (props.data as AnalyzerNode).label }}</div>
                   <div class="text-xs text-slate-500 mt-1">Line {{ (props.data as AnalyzerNode).line }}</div>
@@ -183,6 +197,12 @@ watch(
                   'bg-amber-100 border rounded-xl px-4 py-3 shadow-sm min-w-[200px] text-center transition-all duration-300',
                   props.id === analyzerStore.activeNodeId ? 'ring-4 ring-indigo-500 border-indigo-500 scale-105 shadow-lg' : 'border-amber-400'
                 ]">
+                  <Handle id="top" type="target" :position="Position.Top" class="opacity-0" />
+                  <Handle id="bottom" type="source" :position="Position.Bottom" class="opacity-0" />
+                  <Handle id="left" type="source" :position="Position.Left" class="opacity-0" />
+                  <Handle id="left" type="target" :position="Position.Left" class="opacity-0" />
+                  <Handle id="right" type="source" :position="Position.Right" class="opacity-0" />
+                  <Handle id="right" type="target" :position="Position.Right" class="opacity-0" />
                   <div class="text-xs font-bold text-amber-700 uppercase mb-1">Condition</div>
                   <div class="font-bold text-slate-900">{{ (props.data as AnalyzerNode).label }}</div>
                   <div class="text-xs text-slate-500 mt-1">Line {{ (props.data as AnalyzerNode).line }}</div>

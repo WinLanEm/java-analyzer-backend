@@ -8,14 +8,16 @@ export function applyDagreLayout(nodes: any[], edges: any[]) {
   const graph = new dagre.graphlib.Graph()
 
   graph.setDefaultEdgeLabel(() => ({}))
-  graph.setGraph({ rankdir: 'TB' })
+  graph.setGraph({ rankdir: 'TB', ranksep: 100, nodesep: 150, edgesep: 80, acyclicer: 'greedy' })
 
   nodes.forEach((node) => {
     graph.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT })
   })
 
   edges.forEach((edge) => {
-    graph.setEdge(edge.source, edge.target)
+    if (!edge.isBackEdge) {
+      graph.setEdge(edge.source, edge.target)
+    }
   })
 
   dagre.layout(graph)
