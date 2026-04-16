@@ -5,6 +5,10 @@ public record AnalyzerNode(
         String type,
         String label,
         int line,
-        boolean isError
+        boolean isError,
+        boolean isCall,
+        String callTarget,
+        String callReceiver,
+        String callMethodName
 ) {
 }

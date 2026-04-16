@@ -4,6 +4,10 @@ export interface AnalyzerNode {
   type: 'action' | 'condition'
   line: number
   isError?: boolean
+  isCall?: boolean
+  callTarget?: string | null
+  callReceiver?: string | null
+  callMethodName?: string | null
 }
 
 export interface AnalyzerEdge {
@@ -13,16 +17,34 @@ export interface AnalyzerEdge {
   label?: string
   isBackEdge?: boolean
 }
+
+export interface GraphDTO {
+  nodes: AnalyzerNode[]
+  edges: AnalyzerEdge[]
+  parameters?: string[]
+}
+
+export interface ObjectInstance {
+  id: number
+  className: string
+}
+
+export interface CurrentContext {
+  className: string | null
+  methodName: string | null
+}
+
 export interface ExecutionStep {
   step: number
+  methodSignature: string | null
   activeNodeId: string | null
   memory: Record<string, any>
+  callStack?: string[]
+  heap?: ObjectInstance[]
+  currentContext?: CurrentContext
 }
 
 export interface BackendPayload {
-  graph: {
-    nodes: AnalyzerNode[]
-    edges: AnalyzerEdge[]
-  }
+  graphs: Record<string, GraphDTO>
   executionTrace: ExecutionStep[]
 }
