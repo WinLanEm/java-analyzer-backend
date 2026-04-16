@@ -6,8 +6,10 @@ import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.stmt.BlockStmt;
 import com.github.javaparser.ast.stmt.ExpressionStmt;
+import com.github.javaparser.ast.stmt.ForStmt;
 import com.github.javaparser.ast.stmt.IfStmt;
 import com.github.javaparser.ast.stmt.Statement;
+import com.github.javaparser.ast.stmt.WhileStmt;
 import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 import dto.AnalyzerEdge;
 import dto.AnalyzerNode;
@@ -58,6 +60,14 @@ public final class BuildCfgAction {
                 return buildIfStatement(statement.asIfStmt(), incomingTails);
             }
 
+            if (statement.isWhileStmt()) {
+                return buildWhileStatement(statement.asWhileStmt(), incomingTails);
+            }
+
+            if (statement.isForStmt()) {
+                return buildForStatement(statement.asForStmt(), incomingTails);
+            }
+
             if (statement.isExpressionStmt()) {
                 return buildExpressionStatement(statement.asExpressionStmt(), incomingTails);
             }
@@ -85,12 +95,59 @@ public final class BuildCfgAction {
             return List.copyOf(mergedTails);
         }
 
+        private List<FlowTail> buildWhileStatement(WhileStmt whileStmt, List<FlowTail> incomingTails) {
+            AnalyzerNode conditionNode = createNode("condition", whileStmt.getCondition().toString(), whileStmt);
+            nodes.add(conditionNode);
+            connectTails(incomingTails, conditionNode.id());
+
+            List<FlowTail> bodyTails = buildStatement(
+                    whileStmt.getBody(),
+                    List.of(new FlowTail(conditionNode.id(), "true"))
+            );
+            connectTails(bodyTails, conditionNode.id());
+
+            return List.of(new FlowTail(conditionNode.id(), "false"));
+        }
+
+        private List<FlowTail> buildForStatement(ForStmt forStmt, List<FlowTail> incomingTails) {
+            List<FlowTail> currentTails = incomingTails;
+
+            for (Expression initialization : forStmt.getInitialization()) {
+                currentTails = buildActionNode(initialization.toString(), initialization, currentTails);
+            }
+
+            AnalyzerNode conditionNode = createNode(
+                    "condition",
+                    forStmt.getCompare().map(Expression::toString).orElse("true"),
+                    forStmt
+            );
+            nodes.add(conditionNode);
+            connectTails(currentTails, conditionNode.id());
+
+            List<FlowTail> bodyTails = buildStatement(
+                    forStmt.getBody(),
+                    List.of(new FlowTail(conditionNode.id(), "true"))
+            );
+
+            List<FlowTail> updateTails = bodyTails;
+            for (Expression update : forStmt.getUpdate()) {
+                updateTails = buildActionNode(update.toString(), update, updateTails);
+            }
+            connectTails(updateTails, conditionNode.id());
+
+            return List.of(new FlowTail(conditionNode.id(), "false"));
+        }
+
         private List<FlowTail> buildExpressionStatement(
                 ExpressionStmt expressionStatement,
                 List<FlowTail> incomingTails
         ) {
             Expression expression = expressionStatement.getExpression();
-            AnalyzerNode node = createNode("action", expression.toString(), expressionStatement);
+            return buildActionNode(expression.toString(), expressionStatement, incomingTails);
+        }
+
+        private List<FlowTail> buildActionNode(String label, Node sourceNode, List<FlowTail> incomingTails) {
+            AnalyzerNode node = createNode("action", label, sourceNode);
 
             nodes.add(node);
             connectTails(incomingTails, node.id());
