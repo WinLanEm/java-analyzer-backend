@@ -129,6 +129,9 @@ public final class BuildCfgAction {
     }
 
     private Object literalValue(Expression expression) {
+        if (expression.isArrayCreationExpr() || expression.isArrayInitializerExpr()) {
+            return expression.toString();
+        }
         if (expression.isObjectCreationExpr()) {
             return expression.asObjectCreationExpr().toString();
         }
