@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { Editor } from '@guolao/vue-monaco-editor'
 import { Background } from '@vue-flow/background'
 import { Handle, Position, VueFlow } from '@vue-flow/core'
@@ -51,6 +51,18 @@ function updateActiveLineHighlight(activeNodeId: string | null) {
 
 function handleEditorMount(editor: monaco.editor.IStandaloneCodeEditor) {
   monacoEditor.value = editor
+  editor.onKeyDown((event) => {
+    if (event.browserEvent.key !== ' ') {
+      return
+    }
+
+    event.browserEvent.stopPropagation()
+
+    if (event.browserEvent.defaultPrevented) {
+      event.preventDefault()
+      editor.trigger('keyboard', 'type', { text: ' ' })
+    }
+  })
   configureEditor()
   updateActiveLineHighlight(analyzerStore.activeNodeId)
 }
@@ -59,12 +71,12 @@ function configureEditor() {
   const editor = monacoEditor.value
   if (!editor) return
 
-  editor.updateOptions({ tabSize: 2, insertSpaces: true })
+  editor.updateOptions({ tabSize: 2, insertSpaces: true, readOnly: false })
   editor.getModel()?.updateOptions({ tabSize: 2, insertSpaces: true })
   editor.focus()
 }
 
-function handlePresetChange(event: Event) {
+async function handlePresetChange(event: Event) {
   const exampleName = (event.target as HTMLSelectElement).value as keyof typeof examples
   analyzerStore.loadExample(exampleName)
 
@@ -72,13 +84,25 @@ function handlePresetChange(event: Event) {
     monacoEditor.value.setValue(examples[exampleName])
   }
 
+  await nextTick()
   configureEditor()
 }
 
 async function runAnalysis() {
-  configureEditor()
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur()
+  }
+
+  await nextTick()
   await analyzerStore.analyze()
+  await nextTick()
   configureEditor()
+}
+
+function handleEditorContainerKeydown(event: KeyboardEvent) {
+  if (event.key === ' ') {
+    event.stopPropagation()
+  }
 }
 
 // --- 2. ЛОГИКА ГРАФА VUE FLOW ---
@@ -223,14 +247,14 @@ function isArrayObject(object: { className: string; values?: any[] }): boolean {
     </div>
 
     <div class="flex-1 flex overflow-hidden">
-      <div class="flex-1 relative border-r border-slate-700">
+      <div class="flex-1 relative border-r border-slate-700" @keydown="handleEditorContainerKeydown">
         <div class="absolute inset-0">
           <Editor
               v-model:value="analyzerStore.code"
               @mount="handleEditorMount"
               theme="vs-dark"
               language="java"
-              :options="{ automaticLayout: true, glyphMargin: true, minimap: { enabled: false } }"
+              :options="{ automaticLayout: true, glyphMargin: true, minimap: { enabled: false }, readOnly: false, tabSize: 2, insertSpaces: true }"
           />
         </div>
       </div>
