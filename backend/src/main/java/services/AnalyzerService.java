@@ -1,10 +1,10 @@
 package services;
 
 import actions.BuildCfgAction;
-import actions.SimulateExecutionAction;
 import dto.AnalyzeResponse;
 import dto.ExecutionStep;
 import dto.GraphDTO;
+import engine.ExecutionEngine;
 
 import java.util.List;
 import java.util.Map;
@@ -12,13 +12,13 @@ import java.util.Objects;
 
 public final class AnalyzerService {
     private final BuildCfgAction buildCfgAction;
-    private final SimulateExecutionAction simulateExecutionAction;
+    private final ExecutionEngine executionEngine;
 
-    public AnalyzerService(BuildCfgAction buildCfgAction, SimulateExecutionAction simulateExecutionAction) {
+    public AnalyzerService(BuildCfgAction buildCfgAction, ExecutionEngine executionEngine) {
         this.buildCfgAction = Objects.requireNonNull(buildCfgAction, "buildCfgAction must not be null");
-        this.simulateExecutionAction = Objects.requireNonNull(
-                simulateExecutionAction,
-                "simulateExecutionAction must not be null"
+        this.executionEngine = Objects.requireNonNull(
+                executionEngine,
+                "executionEngine must not be null"
         );
     }
 
@@ -28,7 +28,7 @@ public final class AnalyzerService {
         }
 
         Map<String, GraphDTO> graphs = buildCfgAction.execute(code);
-        List<ExecutionStep> executionTrace = simulateExecutionAction.execute(graphs);
+        List<ExecutionStep> executionTrace = executionEngine.execute(graphs);
         return new AnalyzeResponse(graphs, executionTrace);
     }
 }

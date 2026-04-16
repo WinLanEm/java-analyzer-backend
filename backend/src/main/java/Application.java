@@ -1,7 +1,7 @@
 import actions.BuildCfgAction;
-import actions.SimulateExecutionAction;
 import com.sun.net.httpserver.HttpServer;
 import controllers.AnalyzeController;
+import engine.ExecutionEngine;
 import services.AnalyzerService;
 
 import java.io.IOException;
@@ -16,8 +16,8 @@ public final class Application {
 
     public static void main(String[] args) throws IOException {
         BuildCfgAction buildCfgAction = new BuildCfgAction();
-        SimulateExecutionAction simulateExecutionAction = new SimulateExecutionAction();
-        AnalyzerService analyzerService = new AnalyzerService(buildCfgAction, simulateExecutionAction);
+        ExecutionEngine executionEngine = new ExecutionEngine();
+        AnalyzerService analyzerService = new AnalyzerService(buildCfgAction, executionEngine);
         AnalyzeController analyzeController = new AnalyzeController(analyzerService);
 
         HttpServer server = HttpServer.create(new InetSocketAddress(PORT), 0);
