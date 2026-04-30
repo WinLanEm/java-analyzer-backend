@@ -41,7 +41,7 @@ export const examples = {
   }
 }`,
 
-        '4. Recursion (Factorial)': `public class Demo {
+    '4. Recursion (Factorial)': `public class Demo {
   public static int factorial(int n) {
     if (n <= 1) {
       return 1;
@@ -165,6 +165,49 @@ public class Demo {
     // Попытка переполнить корзину (вызовет Exception)
     Product p3 = new Product();
     cart.add(p3);
+  }
+}`,
+
+    '8. Complex Condition (&& ||)': `public class Demo {
+  public static void main(String[] args) {
+    int x = 12;
+    int y = 8;
+    if (x > 10 && y < 10) {
+      x = x + y;
+    } else if (x > 5 || y > 5) {
+      x = x - y;
+    } else {
+      x = 0;
+    }
+    System.out.println(x);
+  }
+}`,
+
+    '9. While with Continue': `public class Demo {
+  public static void main(String[] args) {
+    int sum = 0;
+    int i = 0;
+    while (i < 5) {
+      i = i + 1;
+      if (i == 3) {
+        continue; // Пропуск итерации
+      }
+      sum = sum + i;
+    }
+    System.out.println(sum);
+  }
+}`,
+
+    '10. For with Break': `public class Demo {
+  public static void main(String[] args) {
+    int sum = 0;
+    for (int i = 1; i <= 100; i++) {
+      sum = sum + i;
+      if (sum > 50) {
+        break; // Досрочный выход
+      }
+    }
+    System.out.println(sum);
   }
 }`
 } as const;
